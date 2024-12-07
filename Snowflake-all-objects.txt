@@ -1,0 +1,229 @@
+use role SYSADMIN;
+
+create database INTL_DB;
+
+use schema INTL_DB.PUBLIC;
+
+create warehouse INTL_WH 
+with 
+warehouse_size = 'XSMALL' 
+warehouse_type = 'STANDARD' 
+auto_suspend = 600 --600 seconds/10 mins
+auto_resume = TRUE;
+
+use warehouse INTL_WH;
+
+---Create Tabke
+create or replace table intl_db.public.INT_STDS_ORG_3166 
+(iso_country_name varchar(100), 
+ country_name_official varchar(200), 
+ sovreignty varchar(40), 
+ alpha_code_2digit varchar(2), 
+ alpha_code_3digit varchar(3), 
+ numeric_country_code integer,
+ iso_subdivision varchar(15), 
+ internet_domain_code varchar(10)
+)
+comment = 'abcs';;
+
+--Create File Format
+create or replace file format util_db.public.PIPE_DBLQUOTE_HEADER_CR 
+  type = 'CSV' --use CSV for any flat file
+  compression = 'AUTO' 
+  field_delimiter = '|' --pipe or vertical bar
+  record_delimiter = '\r' --carriage return
+  skip_header = 1  --1 header row
+  field_optionally_enclosed_by = '\042'  --double quotes
+  trim_space = FALSE;
+
+SELECT $1, $2
+FROM @smoothies.public.my_uploaded_files/fruits_available_for_smoothies.txt
+(FILE_FORMAT => smoothies.public.two_headerrow_pct_delim);
+
+--Create Stage
+show stages in account;
+create stage util_db.public.aws_s3_bucket url = 's3://uni-cmcw';
+list @util_db.public.aws_s3_bucket;
+
+--Copy
+copy into intl_db.public.INT_STDS_ORG_3166
+from @util_db.public.aws_s3_bucket
+files = ( 'ISO_Countries_UTF8_pipe.csv')
+file_format = ( format_name='util_db.public.PIPE_DBLQUOTE_HEADER_CR' );
+
+
+select row_count
+from INTL_DB.INFORMATION_SCHEMA.TABLES 
+where table_schema='PUBLIC'
+and table_name= 'INT_STDS_ORG_3166';
+
+-- create view with share data 
+select  
+     iso_country_name
+    ,country_name_official,alpha_code_2digit
+    ,r_name as region
+from INTL_DB.PUBLIC.INT_STDS_ORG_3166 i
+left join SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.NATION n
+on upper(i.iso_country_name)= n.n_name
+left join SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.REGION r
+on n_regionkey = r_regionkey;
+
+
+create view intl_db.public.NATIONS_SAMPLE_PLUS_ISO 
+( iso_country_name
+  ,country_name_official
+  ,alpha_code_2digit
+  ,region) AS
+  select  
+     iso_country_name
+    ,country_name_official,alpha_code_2digit
+    ,r_name as region
+from INTL_DB.PUBLIC.INT_STDS_ORG_3166 i
+left join SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.NATION n
+on upper(i.iso_country_name)= n.n_name
+left join SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.REGION r
+on n_regionkey = r_regionkey;
+;
+
+alter view intl_db.public.NATIONS_SAMPLE_PLUS_ISO
+set secure; 
+
+
+----create functions
+--fun1
+create function util_db.public.sum_mystery_bag_vars(var1 number, var2 number, var3 number)
+returns number as 'select var1+var2+var3';
+
+--fun 2
+create function util_db.public.NEUTRALIZE_WHINING(var1 text)
+returns text as 'select INITCAP(var1)';
+
+select util_db.public.NEUTRALIZE_WHINING('asbsbHHJJKSASaba')
+
+--fun 3
+-- Set these local variables according to the instructions
+set this = -10.5;
+set that = 2;
+set the_other =  1000;
+
+-- DO NOT EDIT ANYTHING BELOW THIS LINE
+select GRADER(step, (actual = expected), actual, expected, description) as graded_results from (
+  SELECT 'DABW006' as step
+ ,( select util_db.public.sum_mystery_bag_vars($this,$that,$the_other)) as actual
+ , 991.5 as expected
+ ,'Mystery Bag Function Output' as description
+);
+
+
+--fun 4 
+create or replace secure function vin.decode.parse_and_enhance_vin(this_vin varchar(25))
+returns table (
+    VIN varchar(25)
+    , manuf_name varchar(25)
+    , vehicle_type varchar(25)
+    , make_name varchar(25)
+    , plant_name varchar(25)
+    , model_year varchar(25)
+    , model_name varchar(25)
+    , desc1 varchar(25)
+    , desc2 varchar(25)
+    , desc3 varchar(25)
+    , desc4 varchar(25)
+    , desc5 varchar(25)
+    , engine varchar(25)
+    , drive_type varchar(25)
+    , transmission varchar(25)
+    , mpg varchar(25)
+)
+as $$
+  select VIN
+, manuf_name
+, vehicle_type
+, make_name
+, plant_name
+, model_year_name as model_year
+, model_name
+, desc1
+, desc2
+, desc3
+, desc4
+, desc5
+, engine
+, drive_type
+, transmission
+, mpg
+from
+  ( SELECT THIS_VIN as VIN
+  , LEFT(THIS_VIN,3) as WMI
+  , SUBSTR(THIS_VIN,4,5) as VDS
+  , SUBSTR(THIS_VIN,10,1) as model_year_code
+  , SUBSTR(THIS_VIN,11,1) as plant_code
+  ) vin
+JOIN vin.decode.wmi_to_manuf w 
+    ON vin.wmi = w.wmi
+JOIN vin.decode.manuf_to_make m
+    ON w.manuf_id=m.manuf_id
+JOIN vin.decode.manuf_plants p
+    ON vin.plant_code=p.plant_code
+    AND m.make_id=p.make_id
+JOIN vin.decode.model_year y
+    ON vin.model_year_code=y.model_year_code
+JOIN vin.decode.make_model_vds vds
+    ON vds.vds=vin.vds 
+    AND vds.make_id = m.make_id
+$$;
+
+
+--fun5 
+set row_count = (select count(*) 
+                from stock.unsold.lotstock
+                where manuf_name is null);
+
+select $row_count;
+
+
+-- This scripting block runs very slow, but it shows how blocks work for people who are new to using them
+DECLARE
+    update_stmt varchar(2000);
+    res RESULTSET;
+    cur CURSOR FOR select vin from stock.unsold.lotstock where manuf_name is null;
+BEGIN
+    OPEN cur;
+    FOR each_row IN cur DO
+        update_stmt := 'update stock.unsold.lotstock t '||
+            'set manuf_name = s.manuf_name ' ||
+            ', vehicle_type = s.vehicle_type ' ||
+            ', make_name = s.make_name ' ||
+            ', plant_name = s.plant_name ' ||
+            ', model_year = s.model_year ' ||
+            ', desc1 = s.desc1 ' ||
+            ', desc2 = s.desc2 ' ||
+            ', desc3 = s.desc3 ' ||
+            ', desc4 = s.desc4 ' ||
+            ', desc5 = s.desc5 ' ||
+            ', engine = s.engine ' ||
+            ', drive_type = s.drive_type ' ||
+            ', transmission = s.transmission ' ||
+            ', mpg = s.mpg ' ||
+            'from ' ||
+            '(       select ls.vin, pf.manuf_name, pf.vehicle_type ' ||
+                    ', pf.make_name, pf.plant_name, pf.model_year ' ||
+                    ', pf.desc1, pf.desc2, pf.desc3, pf.desc4, pf.desc5 ' ||
+                    ', pf.engine, pf.drive_type, pf.transmission, pf.mpg ' ||
+                'from stock.unsold.lotstock ls ' ||
+                'join ' ||
+                '(   select' || 
+                '     vin, manuf_name, vehicle_type' ||
+                '    , make_name, plant_name, model_year ' ||
+                '    , desc1, desc2, desc3, desc4, desc5 ' ||
+                '    , engine, drive_type, transmission, mpg ' ||
+                '    from table(ADU_VIN.DECODE.PARSE_AND_ENHANCE_VIN(\'' ||
+                  each_row.vin || '\')) ' ||
+                ') pf ' ||
+                'on pf.vin = ls.vin ' ||
+            ') s ' ||
+            'where t.vin = s.vin;';
+        res := (EXECUTE IMMEDIATE :update_stmt);
+    END FOR;
+    CLOSE cur;   
+END;

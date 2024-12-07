@@ -1,0 +1,80 @@
+use role accountadmin;
+create or replace api integration dora_api_integration api_provider = aws_api_gateway api_aws_role_arn = 'arn:aws:iam::321463406630:role/snowflakeLearnerAssumedRole' enabled = true api_allowed_prefixes = ('https://awy6hshxy4.execute-api.us-west-2.amazonaws.com/dev/edu_dora');
+
+create or replace external function util_db.public.grader(        
+ step varchar     
+ , passed boolean     
+ , actual integer     
+ , expected integer    
+ , description varchar) 
+ returns variant 
+ api_integration = dora_api_integration 
+ context_headers = (current_timestamp, current_account, current_statement, current_account_name) 
+ as 'https://awy6hshxy4.execute-api.us-west-2.amazonaws.com/dev/edu_dora/grader'  
+;  
+
+-- row count
+select grader(step, (actual = expected), actual, expected, description) as graded_results from(
+SELECT 'CMCW05' as step
+ ,(select row_count 
+  from INTL_DB.INFORMATION_SCHEMA.TABLES 
+  where table_schema = 'PUBLIC' 
+  and table_name = 'COUNTRY_CODE_TO_CURRENCY_CODE') as actual
+ , 265 as expected
+ ,'CCTCC Table Loaded' as description
+);
+
+select grader(step, (actual = expected), actual, expected, description) as graded_results from(
+SELECT 'CMCW04' as step
+ ,( select count(*) 
+   from INTL_DB.PUBLIC.NATIONS_SAMPLE_PLUS_ISO) as actual
+ , 249 as expected
+ ,'Nations Sample Plus Iso' as description
+);
+
+--table count
+select grader(step, (actual = expected), actual, expected, description) as graded_results from( 
+ SELECT 'CMCW01' as step
+ ,( select count(*) 
+   from snowflake.account_usage.databases
+   where database_name = 'INTL_DB' 
+   and deleted is null) as actual
+ , 1 as expected
+ ,'Created INTL_DB' as description
+ );
+ 
+--share check
+show shares in account;
+
+select grader(step, (actual = expected), actual, expected, description) as graded_results from (
+ SELECT 'CMCW08' as step
+ ,( select IFF(count(*)>0,1,0) 
+    from table(result_scan(last_query_id())) 
+    where "kind" = 'OUTBOUND'
+    and "database_name" = 'INTL_DB') as actual
+ , 1 as expected
+ ,'Outbound Share Created From INTL_DB' as description
+); 
+
+-- resource monitor check
+show resource monitors in account;
+
+select grader(step, (actual = expected), actual, expected, description) as graded_results from (
+ SELECT 'CMCW09' as step
+ ,( select IFF(count(*)>0,1,0) 
+    from table(result_scan(last_query_id())) 
+    where "name" = 'DAILY_3_CREDIT_LIMIT'
+    and "credit_quota" = 3
+    and "frequency" = 'DAILY') as actual
+ , 1 as expected
+ ,'Resource Monitors Exist' as description
+); 
+
+--- hash check
+select GRADER(step, (actual = expected), actual, expected, description) as graded_results from (
+ SELECT 'DABW007' as step
+ ,( select hash(neutralize_whining('bUt mOm i wAsHeD tHe dIsHes yEsTeRdAy'))) as actual
+ , -4759027801154767056 as expected
+ ,'WHINGE UDF Works' as description
+);
+
